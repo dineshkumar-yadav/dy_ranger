@@ -720,33 +720,65 @@ public class AssetMgr extends AssetMgrBase {
 		final Runnable commitWork;
 
 		if (httpCode == HttpServletResponse.SC_NOT_MODIFIED) {
-			if (!pluginActivityAuditLogNotModified) {
+			RangerPluginInfo dbObj = null;
+			boolean isLastActivationTimeUpdateNeeded = false;
+
+			if (StringUtils.isNotBlank(pluginInfo.getServiceName())) {
+				XXPluginInfo xObj = rangerDaoManager.getXXPluginInfo().find(pluginInfo.getServiceName(), pluginInfo.getHostName(), pluginInfo.getAppType());
+				if(xObj != null){
+					dbObj = pluginInfoService.populateViewObject(xObj);
+				}
+			}
+				// Create or update PluginInfo record after transaction is completed. If it is created in-line here
+				// then the TransactionManager will roll-back the changes because the HTTP return code is
+				// HttpServletResponse.SC_NOT_MODIFIED
+			switch (entityType) {
+				case RangerPluginInfo.ENTITY_TYPE_POLICIES:
+					isTagVersionResetNeeded = rangerDaoManager.getXXService().findAssociatedTagService(pluginInfo.getServiceName()) == null;
+					if(dbObj != null){
+						Long lastPolicyActivationTime = pluginInfo.getPolicyActivationTime();
+						if (lastPolicyActivationTime != null && lastPolicyActivationTime > 0 && (dbObj.getPolicyActivationTime() == null || !dbObj.getPolicyActivationTime().equals(lastPolicyActivationTime))) {
+							isLastActivationTimeUpdateNeeded = true;
+						}
+					}
+					break;
+				case RangerPluginInfo.ENTITY_TYPE_TAGS:
+					isTagVersionResetNeeded = false;
+					if(dbObj != null){
+						Long lastTagActivationTime = pluginInfo.getTagActivationTime();
+						if (lastTagActivationTime != null && lastTagActivationTime > 0 && (dbObj.getTagActivationTime() == null || !dbObj.getTagActivationTime().equals(lastTagActivationTime))) {
+							isLastActivationTimeUpdateNeeded = true;
+						}
+					}
+					break;
+				case RangerPluginInfo.ENTITY_TYPE_ROLES:
+					isTagVersionResetNeeded = false;
+					if(dbObj != null){
+						Long lastRoleActivationTime = pluginInfo.getRoleActivationTime();
+						if (lastRoleActivationTime != null && lastRoleActivationTime > 0 && (dbObj.getRoleActivationTime() == null || !dbObj.getRoleActivationTime().equals(lastRoleActivationTime))) {
+							isLastActivationTimeUpdateNeeded = true;
+						}
+					}
+					break;
+				case RangerPluginInfo.ENTITY_TYPE_USERSTORE:
+					isTagVersionResetNeeded = false;
+					if(dbObj != null){
+						Long lastUserStoreActivationTime = pluginInfo.getUserStoreActivationTime();
+						if (lastUserStoreActivationTime != null && lastUserStoreActivationTime > 0 && (dbObj.getUserStoreActivationTime() == null || !dbObj.getUserStoreActivationTime().equals(lastUserStoreActivationTime))) {
+							isLastActivationTimeUpdateNeeded = true;
+						}
+					}
+					break;
+				default:
+					isTagVersionResetNeeded = false;
+					break;
+			}
+
+			if (!pluginActivityAuditLogNotModified && !isLastActivationTimeUpdateNeeded ) {
 				logger.debug("Not logging HttpServletResponse. SC_NOT_MODIFIED. To enable, set configuration: {}=true", PROP_PLUGIN_ACTIVITY_AUDIT_NOT_MODIFIED);
 
 				commitWork = null;
 			} else {
-				// Create or update PluginInfo record after transaction is completed. If it is created in-line here
-				// then the TransactionManager will roll-back the changes because the HTTP return code is
-				// HttpServletResponse.SC_NOT_MODIFIED
-
-				switch (entityType) {
-					case RangerPluginInfo.ENTITY_TYPE_POLICIES:
-						isTagVersionResetNeeded = rangerDaoManager.getXXService().findAssociatedTagService(pluginInfo.getServiceName()) == null;
-						break;
-					case RangerPluginInfo.ENTITY_TYPE_TAGS:
-						isTagVersionResetNeeded = false;
-						break;
-					case RangerPluginInfo.ENTITY_TYPE_ROLES:
-						isTagVersionResetNeeded = false;
-						break;
-					case RangerPluginInfo.ENTITY_TYPE_USERSTORE:
-						isTagVersionResetNeeded = false;
-						break;
-					default:
-						isTagVersionResetNeeded = false;
-						break;
-				}
-
 				commitWork = new Runnable() {
 					@Override
 					public void run() {
